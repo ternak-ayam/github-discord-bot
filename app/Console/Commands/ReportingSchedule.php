@@ -245,7 +245,7 @@ class ReportingSchedule extends Command
 
         // Add commits list
         $commitsList = '';
-        foreach ($authorCommits as $commit) {
+        foreach (array_slice($authorCommits, 0, 5) as $commit) {
             $message = $this->truncateMessage($commit['commit']['message'] ?? 'No message');
             $sha = substr($commit['sha'], 0, 7);
             $date = Carbon::parse($commit['commit']['author']['date'])->setTimezone('Asia/Singapore')->format('H:i');
