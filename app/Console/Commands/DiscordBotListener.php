@@ -311,18 +311,19 @@ class DiscordBotListener extends Command
 
         if ($existingCheckin) {
             $checkinTime = $existingCheckin->checkin_at->format('H:i');
-            return "⚠️ {$username}, you're already checked in today at {$checkinTime}!";
+            $content = "⚠️ {$username}, you're already checked in today at {$checkinTime}!";
+        } else {
+            UserCheckin::create([
+                'discord_user_id' => $userId,
+                'username' => $username,
+                'checkin_at' => Carbon::now(),
+            ]);
+
+            $currentTime = Carbon::now()->timezone('Asia/Singapore')->format('H:i');
+            $content = "✅ {$username} checked in successfully at {$currentTime}! Have a productive day! 🚀";
         }
 
-        // Create new check-in record
-        UserCheckin::create([
-            'discord_user_id' => $userId,
-            'username' => $username,
-            'checkin_at' => Carbon::now(),
-        ]);
-
-        $currentTime = Carbon::now()->timezone('Asia/Singapore')->format('H:i');
-        return "✅ {$username} checked in successfully at {$currentTime}! Have a productive day! 🚀";
+        return $content;
     }
 
     private function handleCheckout($userId, $username)
