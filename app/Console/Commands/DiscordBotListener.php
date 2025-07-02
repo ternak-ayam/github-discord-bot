@@ -382,22 +382,26 @@ class DiscordBotListener extends Command
             ->first();
 
         if (!$todayCheckin) {
-            return "📊 {$username}, you haven't checked in today yet. Use `!checkin` to start your day!";
+            $content = "📊 {$username}, you haven't checked in today yet. Use `checkin` to start your day!";
         }
 
         if ($todayCheckin->checkout_at) {
             $workedTime = $todayCheckin->formatted_worked_time;
-            return "📊 **{$username}'s Status:** Already checked out\n" .
+            $content = "📊 **{$username}'s Status:** Already checked out\n" .
                 "⏱️ Total time worked: {$workedTime}";
         } else {
             $currentTime = Carbon::now();
             $workedHours = $todayCheckin->checkin_at->diffInHours($currentTime);
             $workedMinutes = $todayCheckin->checkin_at->diffInMinutes($currentTime) % 60;
 
-            return "📊 **{$username}'s Status:** Currently checked in\n" .
+            $content = "📊 **{$username}'s Status:** Currently checked in\n" .
                 "🕐 Checked in at: " . $todayCheckin->checkin_at->format('H:i') . "\n" .
                 "⏱️ Time elapsed: {$workedHours}h {$workedMinutes}m";
         }
+
+        return [
+            "content" => $content
+        ];
     }
 
     private function generateWorkReport($userId, $checkin = null)
