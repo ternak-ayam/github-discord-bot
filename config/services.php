@@ -48,6 +48,11 @@ return [
             'aqordeon' => '1164029137070071850', // Can also map by email
             'Ganes556' => '699211547305574460'
         ],
-    ],
 
+        'bot_token' => env('DISCORD_BOT_TOKEN'),
+        'application_id' => env('DISCORD_APPLICATION_ID'),
+        'public_key' => env('DISCORD_PUBLIC_KEY'),
+        'client_id' => env('DISCORD_CLIENT_ID'),
+        'client_secret' => env('DISCORD_CLIENT_SECRET'),
+    ],
 ];
