@@ -323,7 +323,9 @@ class DiscordBotListener extends Command
             $content = "✅ {$username} checked in successfully at {$currentTime}! Have a productive day! 🚀";
         }
 
-        return $content;
+        return [
+            'content' => $content
+        ];
     }
 
     private function handleCheckout($userId, $username)
