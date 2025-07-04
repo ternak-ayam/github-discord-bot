@@ -34,9 +34,14 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+
     'github' => [
         'token' => env('GITHUB_TOKEN'),
         'repo' => env('GITHUB_REPO'), // format: owner/repository
+    ],
+
+    'gpt' => [
+        'token' => env('GPT_TOKEN')
     ],
 
     'discord' => [

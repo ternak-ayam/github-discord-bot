@@ -8,6 +8,7 @@ use Ratchet\Client\Connector;
 use Illuminate\Support\Facades\Http;
 use App\Models\UserCheckin;
 use Carbon\Carbon;
+use Illuminate\Support\Arr;
 
 class DiscordBotListener extends Command
 {
@@ -15,6 +16,7 @@ class DiscordBotListener extends Command
     protected $description = 'Start Discord bot to listen for messages';
 
     private $botToken;
+    private $gptToken;
     private $gatewayUrl;
     private $sessionId;
     private $lastSequence;
@@ -24,6 +26,7 @@ class DiscordBotListener extends Command
     public function handle()
     {
         $this->botToken = config('services.discord.bot_token');
+        $this->gptToken = config('services.gpt.token');
 
         if (!$this->botToken) {
             $this->error('Discord bot token not configured!');
@@ -203,8 +206,7 @@ class DiscordBotListener extends Command
         $interactionToken = $interactionData['token'];
         $userId = $interactionData['member']['user']['id'];
         $name = $interactionData['member']['user']['name'] ?? $interactionData['member']['user']['global_name'] ?? $interactionData['member']['user']['username'];
-
-        echo json_encode($interactionData);
+        $message = $interactionData['data']['options'][0]['value'];
 
         // Check if this is a slash command
         if ($interactionData['type'] === 2) { // APPLICATION_COMMAND
@@ -212,15 +214,20 @@ class DiscordBotListener extends Command
 
             $this->info("Slash command from {$name}: /{$commandName}");
 
-            $response = $this->handleSlashCommand($commandName, $userId, $name);
+            $response = $this->handleSlashCommand($commandName, $userId, $name, $message);
 
-            if ($response) {
+            if ($response && $commandName != 'ask') {
                 $this->sendInteractionResponse($interactionId, $interactionToken, $response);
+            } else if ($commandName == 'ask') {
+                $this->sendDeferredResponse($interactionId, $interactionToken);
+                $response = $this->handleAskAI($message);
+
+                $this->sendFollowUpMessage($interactionToken, $response);
             }
         }
     }
 
-    private function handleSlashCommand($commandName, $userId, $username)
+    private function handleSlashCommand($commandName, $userId, $username, $message = null)
     {
         switch ($commandName) {
             case 'checkin':
@@ -230,7 +237,7 @@ class DiscordBotListener extends Command
                 return $this->handleCheckout($userId, $username);
 
             case 'ask':
-                return $this->handleAskAI($userId, $username);
+                return $this->handleAskAI($message);
 
             case 'status':
                 return $this->handleStatus($userId, $username);
@@ -257,6 +264,44 @@ class DiscordBotListener extends Command
             $this->info('Interaction response sent successfully');
         } else {
             $this->error('Failed to send interaction response: ' . $response->body());
+        }
+    }
+
+    private function sendDeferredResponse($interactionId, $interactionToken)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bot ' . env('DISCORD_BOT_TOKEN'),
+                'Content-Type' => 'application/json',
+            ])->post("https://discord.com/api/v10/interactions/{$interactionId}/{$interactionToken}/callback", [
+                'type' => 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+            ]);
+
+            if (!$response->successful()) {
+                $this->error('Failed to send deferred response: ' . $response->body());
+            } else {
+                $this->info('Deferred response sent - bot is thinking...');
+            }
+        } catch (\Exception $e) {
+            $this->error('Error sending deferred response: ' . $e->getMessage());
+        }
+    }
+
+    private function sendFollowUpMessage($interactionToken, $responseData)
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bot ' . $this->botToken,
+                'Content-Type' => 'application/json',
+            ])->post("https://discord.com/api/v10/webhooks/" . config('services.discord.application_id') . "/{$interactionToken}", $responseData);
+
+            if (!$response->successful()) {
+                $this->error('Failed to send follow-up message: ' . $response->body());
+            } else {
+                $this->info('Follow-up message sent successfully');
+            }
+        } catch (\Exception $e) {
+            $this->error('Error sending follow-up message: ' . $e->getMessage());
         }
     }
 
@@ -412,6 +457,46 @@ class DiscordBotListener extends Command
         return [
             "content" => $content
         ];
+    }
+
+    public function handleAskAI($text)
+    {
+        $response = Http::withHeaders([
+            'Authorization' => "Bearer {$this->gptToken}",
+            'Content-Type' => 'application/json'
+        ])->post("https://api.openai.com/v1/chat/completions", [
+            "messages" => [
+                [
+                    "role" => "user",
+                    "content" => $text . ' and use maks 3 sentences and 5 option'
+                ]
+            ],
+            "model" => "gpt-4o-mini",
+            "max_tokens" => 200,
+            "temperature" => 0.5
+        ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+
+            if (isset($data['choices'][0]['message']['content'])) {
+                $aiResponse = $data['choices'][0]['message']['content'];
+
+                return [
+                    'content' => $text,
+                    'embeds' => [[
+                        'title' => 'AI Response',
+                        'description' => $aiResponse,
+                        'color' => 0x00ff00
+                    ]]
+                ];
+            } else {
+                throw new \Exception('No response content found');
+            }
+            $this->info('Message sent successfully');
+        } else {
+            $this->error('Failed to send message: ' . $response->body());
+        }
     }
 
     private function generateWorkReport($userId, $checkin = null)

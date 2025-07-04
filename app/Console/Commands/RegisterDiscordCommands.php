@@ -58,8 +58,8 @@ class RegisterDiscordCommands extends Command
                 'type' => 1, // CHAT_INPUT - regular slash command
                 'options' => [
                     [
-                        'name' => 'mesage',
-                        'description' => 'Optional message about what you\'re asking to GPT',
+                        'name' => 'text',
+                        'description' => 'Optional text about what you\'re asking to GPT',
                         'type' => 3, // STRING
                         'required' => true
                     ]
