@@ -46,7 +46,25 @@ class RegisterDiscordCommands extends Command
                 'name' => 'status',
                 'description' => 'Check your current work status',
                 'type' => 1
-            ]
+            ],
+            [
+                'name' => 'whoami',
+                'description' => 'Check who are you',
+                'type' => 1
+            ],
+            [
+                'name' => 'ask',
+                'description' => 'Ask GPT',
+                'type' => 1, // CHAT_INPUT - regular slash command
+                'options' => [
+                    [
+                        'name' => 'mesage',
+                        'description' => 'Optional message about what you\'re asking to GPT',
+                        'type' => 3, // STRING
+                        'required' => true
+                    ]
+                ]
+            ],
         ];
 
         $this->info('Registering Discord slash commands...');

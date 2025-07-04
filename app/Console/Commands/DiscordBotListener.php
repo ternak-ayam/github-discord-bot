@@ -204,6 +204,8 @@ class DiscordBotListener extends Command
         $userId = $interactionData['member']['user']['id'];
         $name = $interactionData['member']['user']['name'] ?? $interactionData['member']['user']['global_name'] ?? $interactionData['member']['user']['username'];
 
+        echo json_encode($interactionData);
+
         // Check if this is a slash command
         if ($interactionData['type'] === 2) { // APPLICATION_COMMAND
             $commandName = $interactionData['data']['name'];
@@ -226,6 +228,9 @@ class DiscordBotListener extends Command
 
             case 'checkout':
                 return $this->handleCheckout($userId, $username);
+
+            case 'ask':
+                return $this->handleAskAI($userId, $username);
 
             case 'status':
                 return $this->handleStatus($userId, $username);
@@ -261,7 +266,9 @@ class DiscordBotListener extends Command
         if ($messageData['author']['bot'] ?? false) {
             return;
         }
-        $this->info(json_decode($messageData));
+
+        echo json_encode($messageData);
+
         $content = trim($messageData['content']);
         $userId = $messageData['author']['id'];
         $username = $messageData['author']['username'];
@@ -357,7 +364,7 @@ class DiscordBotListener extends Command
         ]);
 
         $checkoutTime = Carbon::now()->timezone('Asia/Singapore')->format('H:i');
-        $workedHours = $checkin->checkin_at->diffInHours(Carbon::now());
+        $workedHours = round($checkin->checkin_at->diffInHours(Carbon::now()));
         $workedMinutes = $checkin->checkin_at->diffInMinutes(Carbon::now()) % 60;
 
         if ($workedHours < 1) {
