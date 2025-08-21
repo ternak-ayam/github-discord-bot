@@ -217,7 +217,8 @@ class DiscordBotListener extends Command
             $response = $this->handleSlashCommand($commandName, $userId, $name, $message);
 
             if ($response && $commandName != 'ask') {
-                $this->sendInteractionResponse($interactionId, $interactionToken, $response);
+                $this->sendDeferredResponse($interactionId, $interactionToken);
+                $this->sendFollowUpMessage($interactionToken, $response);
             } else if ($commandName == 'ask') {
                 $this->sendDeferredResponse($interactionId, $interactionToken);
                 $response = $this->handleAskAI($message);
