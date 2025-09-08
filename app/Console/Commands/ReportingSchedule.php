@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class ReportingSchedule
+class ReportingSchedule extends Command
 {
     /**
      * The name and signature of the console command.
@@ -26,12 +26,13 @@ class ReportingSchedule
     /**
      * Execute the console command.
      */
-    public function handle($userId = null)
+    public function handle()
     {
         try {
             // Skip execution on weekends (Saturday = 6, Sunday = 0)
             $dayOfWeek = Carbon::now('Asia/Singapore')->dayOfWeek;
             if ($dayOfWeek === 0 || $dayOfWeek === 6) {
+                $this->info('Skipping execution - Weekend detected (Saturday/Sunday)');
                 return 0;
             }
 
@@ -39,25 +40,40 @@ class ReportingSchedule
             $githubRepo = config('services.github.repo');
             $discordWebhook = config('services.discord.webhook');
             $userMapping = config('services.discord.user_mapping');
-            $githubUsername = '';
 
-            if ($userId) {
-                foreach ($userMapping as $githubUsernamez => $discordId) {
-                    if ($discordId === $userId) {
-                        $githubUsername = $githubUsernamez;
-                    }
-                }
+            // Parse user mapping if it's a JSON string
+            if (is_string($userMapping)) {
+                $userMapping = json_decode($userMapping, true);
             }
+
+            if (!$githubToken || !$githubRepo || !$discordWebhook) {
+                $this->error('Missing required configuration. Please provide GitHub token, repo, and Discord webhook.');
+                return 1;
+            }
+
+            if (!$userMapping || !is_array($userMapping)) {
+                $this->error('User mapping is required. Please provide GitHub username to Discord ID mapping.');
+                return 1;
+            }
+
+            $this->info("Fetching today's commits from {$githubRepo}...");
 
             $commits = $this->getTodayGitHubCommits($githubToken, $githubRepo);
 
             if (empty($commits)) {
+                $this->info('No commits found for today.');
                 // Send a "no commits" report
-                return $this->getNoCommitsReport($discordWebhook, $githubRepo);
+                $this->sendNoCommitsReport($discordWebhook, $githubRepo);
+                return 0;
             }
 
-            return $this->sendCommitsToDiscord($commits, $discordWebhook, $githubUsername, $githubRepo);
+            $this->info("Found " . count($commits) . " commits today. Sending to Discord...");
+
+            $this->sendCommitsToDiscord($commits, $discordWebhook, $userMapping, $githubRepo);
+
+            $this->info('Report sent successfully!');
         } catch (\Exception $e) {
+            $this->error("Error: " . $e->getMessage());
             Log::error('GitHub reporting failed', ['error' => $e->getMessage()]);
             return 1;
         }
@@ -68,7 +84,7 @@ class ReportingSchedule
     /**
      * Fetch today's commits from GitHub API (UTC+8 timezone)
      */
-    public function getTodayGitHubCommits(string $token, string $repo): array
+    private function getTodayGitHubCommits(string $token, string $repo): array
     {
         // Get today's date in UTC+8 timezone
         $todayStart = Carbon::now('Asia/Singapore')->startOfDay()->utc()->toISOString();
@@ -114,7 +130,7 @@ class ReportingSchedule
     /**
      * Send commits to Discord with separate messages for each user
      */
-    private function sendCommitsToDiscord(array $commits, string $webhookUrl, string $userGithubName, string $repo): array
+    private function sendCommitsToDiscord(array $commits, string $webhookUrl, array $userMapping, string $repo): void
     {
         $today = Carbon::now('Asia/Singapore')->format('Y-m-d');
 
@@ -122,33 +138,33 @@ class ReportingSchedule
         $commitsByAuthor = [];
 
         foreach ($commits as $commit) {
-            $authorName = $userGithubName;
-            if ($authorName === $commit['commit']['author']['name']) {
-                $authorEmail = $commit['commit']['author']['email'] ?? '';
+            $authorName = $commit['commit']['author']['name'] ?? 'Unknown';
+            $authorEmail = $commit['commit']['author']['email'] ?? '';
 
-                // Try to find Discord user by GitHub username or email
-                // $discordUserId = $this->findDiscordUser($authorName, $authorEmail, $userMapping);
+            // Try to find Discord user by GitHub username or email
+            $discordUserId = $this->findDiscordUser($authorName, $authorEmail, $userMapping);
 
-                if (!isset($commitsByAuthor[$authorName])) {
-                    $commitsByAuthor[$authorName] = [
-                        'commits' => [],
-                        'email' => $authorEmail
-                    ];
-                }
-
-                $commitsByAuthor[$authorName]['commits'][] = $commit;
+            if (!isset($commitsByAuthor[$authorName])) {
+                $commitsByAuthor[$authorName] = [
+                    'commits' => [],
+                    'discord_id' => $discordUserId,
+                    'email' => $authorEmail
+                ];
             }
+
+            $commitsByAuthor[$authorName]['commits'][] = $commit;
         }
 
         // First, send a summary message
-        // $this->sendSummaryMessage($commitsByAuthor, $webhookUrl, $repo, $today);
+        $this->sendSummaryMessage($commitsByAuthor, $webhookUrl, $repo, $today);
 
         // Then send individual messages for each author
-        foreach ($commitsByAuthor as $authorzName => $authorData) {
-            return $this->sendUserCommitMessage($authorzName, $authorData, $webhookUrl, $repo, $today);
-        }
+        foreach ($commitsByAuthor as $authorName => $authorData) {
+            $this->sendUserCommitMessage($authorName, $authorData, $webhookUrl, $repo, $today);
 
-        return [];
+            // Add a small delay to avoid rate limiting
+            sleep(2); // 0.5 second delay
+        }
     }
 
     /**
@@ -210,10 +226,14 @@ class ReportingSchedule
     /**
      * Send individual user commit message
      */
-    private function sendUserCommitMessage(string $authorName, array $authorData, string $webhookUrl, string $repo, string $today): array
+    private function sendUserCommitMessage(string $authorName, array $authorData, string $webhookUrl, string $repo, string $today): void
     {
         $authorCommits = $authorData['commits'];
+        $discordId = $authorData['discord_id'];
         $commitCount = count($authorCommits);
+
+        // Create author header with mention if available
+        $authorHeader = $discordId ? "<@{$discordId}>" : $authorName;
 
         $embed = [
             'title' => "👤 {$authorName}'s Commits",
@@ -225,7 +245,7 @@ class ReportingSchedule
 
         // Add commits list
         $commitsList = '';
-        foreach (array_slice($authorCommits, 0, 5) as $commit) {
+        foreach ($authorCommits as $commit) {
             $message = $this->truncateMessage($commit['commit']['message'] ?? 'No message');
             $sha = substr($commit['sha'], 0, 7);
             $date = Carbon::parse($commit['commit']['author']['date'])->setTimezone('Asia/Singapore')->format('H:i');
@@ -241,12 +261,22 @@ class ReportingSchedule
             'inline' => false
         ];
 
+        // Add warning if user is not mapped
+        if (!$discordId) {
+            $embed['fields'][] = [
+                'name' => '⚠️ Note',
+                'value' => "This contributor doesn't have Discord mapping configured.",
+                'inline' => false
+            ];
+            $embed['color'] = 0xffa500; // Orange color for unmapped users
+        }
+
         $payload = [
+            'content' => $authorHeader . "'s commits:",
             'embeds' => [$embed]
         ];
 
-        Log::info($payload);
-        return $payload;
+        $response = Http::post($webhookUrl, $payload);
 
         if (!$response->successful()) {
             throw new \Exception("Discord webhook error: " . $response->status() . " - " . $response->body());
@@ -256,7 +286,7 @@ class ReportingSchedule
     /**
      * Send no commits report
      */
-    private function getNoCommitsReport(string $repo): array
+    private function sendNoCommitsReport(string $webhookUrl, string $repo): void
     {
         $today = Carbon::now('Asia/Singapore')->format('Y-m-d');
 
@@ -281,7 +311,11 @@ class ReportingSchedule
             'embeds' => [$embed]
         ];
 
-        return $payload;
+        $response = Http::post($webhookUrl, $payload);
+
+        if (!$response->successful()) {
+            throw new \Exception("Discord webhook error: " . $response->status() . " - " . $response->body());
+        }
     }
 
     /**

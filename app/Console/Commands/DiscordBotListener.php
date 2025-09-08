@@ -206,7 +206,7 @@ class DiscordBotListener extends Command
         $interactionToken = $interactionData['token'];
         $userId = $interactionData['member']['user']['id'];
         $name = $interactionData['member']['user']['name'] ?? $interactionData['member']['user']['global_name'] ?? $interactionData['member']['user']['username'];
-        $message = $interactionData['data']['options'][0]['value'];
+        $message = '';
 
         // Check if this is a slash command
         if ($interactionData['type'] === 2) { // APPLICATION_COMMAND
@@ -399,6 +399,7 @@ class DiscordBotListener extends Command
                 $content .= "\n\n You have not commit anything yet.🥀";
             }
 
+
             return array_merge([
                 'content' => $content
             ], $workReport);
@@ -469,11 +470,11 @@ class DiscordBotListener extends Command
             "messages" => [
                 [
                     "role" => "user",
-                    "content" => $text . ' and use maks 3 sentences and 5 option'
+                    "content" => 'Summarize based on data provided: ' . json_encode($text) . ''
                 ]
             ],
             "model" => "gpt-4o-mini",
-            "max_tokens" => 200,
+            "max_tokens" => 100,
             "temperature" => 0.5
         ]);
 
@@ -483,16 +484,9 @@ class DiscordBotListener extends Command
             if (isset($data['choices'][0]['message']['content'])) {
                 $aiResponse = $data['choices'][0]['message']['content'];
 
-                return [
-                    'content' => $text,
-                    'embeds' => [[
-                        'title' => 'AI Response',
-                        'description' => $aiResponse,
-                        'color' => 0x00ff00
-                    ]]
-                ];
+                return $aiResponse;
             } else {
-                throw new \Exception('No response content found');
+                return 'No response content found';
             }
             $this->info('Message sent successfully');
         } else {

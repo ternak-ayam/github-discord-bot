@@ -51,7 +51,7 @@ return [
             'YudhistiraA' => '1163758773127626884',
             'KirinZero0' => '367243272244166669',
             'aqordeon' => '1164029137070071850', // Can also map by email
-            'Ganes556' => '699211547305574460'
+            'wahyuPM' => '843132772155392050'
         ],
 
         'bot_token' => env('DISCORD_BOT_TOKEN'),
