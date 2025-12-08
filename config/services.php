@@ -47,11 +47,14 @@ return [
     'discord' => [
         'webhook' => env('DISCORD_WEBHOOK_URL'),
         'user_mapping' => [
-            'Artha' => '1164018590295527424',
+            'itzartha' => '1164018590295527424',
             'YudhistiraA' => '1163758773127626884',
             'KirinZero0' => '367243272244166669',
             'aqordeon' => '1164029137070071850', // Can also map by email
-            'wahyuPM' => '843132772155392050'
+            'louis-perez' => '1432158071995760785',
+            'andiferdiawan' => '1288319698043277355',
+            'stewicca' => '1149616082018115665',
+            'ekayudinata' => '1434699656079740928'
         ],
 
         'bot_token' => env('DISCORD_BOT_TOKEN'),
