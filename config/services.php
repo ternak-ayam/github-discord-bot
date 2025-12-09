@@ -40,8 +40,8 @@ return [
         'repo' => env('GITHUB_REPO'), // format: owner/repository
     ],
 
-    'gpt' => [
-        'token' => env('GPT_TOKEN')
+    'openai' => [
+        'token' => env('OPENAI_API_KEY'),
     ],
 
     'discord' => [
