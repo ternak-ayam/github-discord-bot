@@ -90,8 +90,7 @@ class ReportingSchedule extends Command
         $branches = $this->getAllBranches($token, $repo, $headers);
         $this->info('Found ' . count($branches) . ' branches');
 
-        $allCommits = [];
-        $seenCommitShas = []; // To avoid duplicate commits
+        $commitsBysha = []; // Track commits by SHA with their branches
 
         // Fetch commits from each branch
         foreach ($branches as $branch) {
@@ -115,21 +114,22 @@ class ReportingSchedule extends Command
                     foreach ($branchCommits as $commit) {
                         $sha = $commit['sha'];
 
-                        // Skip if we've already seen this commit (commits can be in multiple branches)
-                        if (isset($seenCommitShas[$sha])) {
-                            continue;
+                        // If commit already exists, add this branch to its branch list
+                        if (isset($commitsBysha[$sha])) {
+                            $commitsBysha[$sha]['branches'][] = $branchName;
+                        } else {
+                            // First time seeing this commit
+                            $commit['branches'] = [$branchName];
+                            $commitsBysha[$sha] = $commit;
                         }
-
-                        // Add branch information to the commit
-                        $commit['branch'] = $branchName;
-                        $allCommits[] = $commit;
-                        $seenCommitShas[$sha] = true;
                     }
                 }
             } catch (\Exception $e) {
                 $this->warn("Failed to fetch commits from branch {$branchName}: " . $e->getMessage());
             }
         }
+
+        $allCommits = array_values($commitsBysha);
 
         // Filter out merge commits
         $filteredCommits = array_filter($allCommits, function ($commit) {
@@ -150,6 +150,90 @@ class ReportingSchedule extends Command
         });
 
         return $filteredCommits;
+    }
+
+    /**
+     * Send individual user commit message (UPDATED to handle multiple branches)
+     */
+    private function sendUserCommitMessage(string $authorName, array $authorData, string $webhookUrl, string $repo, string $today): void
+    {
+        $authorCommits = $authorData['commits'];
+        $discordId = $authorData['discord_id'];
+        $aiSummary = $authorData['ai_summary'] ?? null;
+        $commitCount = count($authorCommits);
+
+        // Get unique branches across all commits
+        $allBranches = [];
+        foreach ($authorCommits as $commit) {
+            $branches = $commit['branches'] ?? ['unknown'];
+            $allBranches = array_merge($allBranches, $branches);
+        }
+        $allBranches = array_unique($allBranches);
+
+        $authorHeader = $discordId ? "<@{$discordId}>" : $authorName;
+        $embed = [
+            'title' => "👤 {$authorName}'s Commits",
+            'description' => "{$commitCount} commit" . ($commitCount > 1 ? 's' : '') . " on {$today}\n📌 Branches: " . implode(', ', $allBranches),
+            'color' => 0x00ff00,
+            'timestamp' => Carbon::now()->toISOString(),
+            'fields' => []
+        ];
+
+        // Add AI summary if available
+        if ($aiSummary) {
+            $embed['fields'][] = [
+                'name' => '🤖 AI Summary',
+                'value' => $aiSummary,
+                'inline' => false
+            ];
+        }
+
+        // Add commits list
+        $commitsList = '';
+        foreach (array_slice($authorCommits, 0, 10) as $commit) {
+            $message = $this->truncateMessage($commit['commit']['message'] ?? 'No message');
+            $sha = substr($commit['sha'], 0, 7);
+            $date = Carbon::parse($commit['commit']['author']['date'])->setTimezone('Asia/Singapore')->format('H:i');
+            $commitUrl = $commit['html_url'];
+
+            // Show all branches this commit is on
+            $branches = $commit['branches'] ?? ['unknown'];
+            $branchDisplay = implode(', ', $branches);
+
+            $commitsList .= "**[{$sha}]({$commitUrl})** `{$branchDisplay}` - {$date}\n";
+            $commitsList .= "└ {$message}\n\n";
+        }
+
+        if ($commitCount > 10) {
+            $commitsList .= "*... and " . ($commitCount - 10) . " more commits*\n";
+        }
+
+        $embed['fields'][] = [
+            'name' => '📝 Commits',
+            'value' => $commitsList,
+            'inline' => false
+        ];
+
+        // Add warning if user is not mapped
+        if (!$discordId) {
+            $embed['fields'][] = [
+                'name' => '⚠️ Note',
+                'value' => "This contributor doesn't have Discord mapping configured.",
+                'inline' => false
+            ];
+            $embed['color'] = 0xffa500;
+        }
+
+        $payload = [
+            'content' => $authorHeader . "'s commits:",
+            'embeds' => [$embed]
+        ];
+
+        $response = Http::post($webhookUrl, $payload);
+
+        if (!$response->successful()) {
+            Log::warning("Discord webhook error for user {$authorName}: " . $response->status());
+        }
     }
 
     /**
@@ -262,23 +346,24 @@ class ReportingSchedule extends Command
 
         // Generate AI summaries for each author
         $this->info('Generating AI summaries...');
-        foreach ($commitsByAuthor as $authorName => &$authorData) {
+        // Generate AI summaries and send messages concurrently
+
+        // Send summary message
+        $this->sendSummaryMessage($commitsByAuthor, $webhookUrl, $repo, $today);
+
+        foreach ($commitsByAuthor as $authorName => $authorData) {
+            // Generate AI summary
             $summary = $this->generateAISummary($authorData['commits'], $authorName);
             $authorData['ai_summary'] = $summary;
             if ($summary) {
                 $this->info("✓ Generated summary for {$authorName}");
             }
-        }
 
-        // First, send a summary message
-        $this->sendSummaryMessage($commitsByAuthor, $webhookUrl, $repo, $today);
-        // Then send individual messages for each author
-        foreach ($commitsByAuthor as $authorName => $authorData) {
+            // Send Discord messages sequentially
             $this->sendUserCommitMessage($authorName, $authorData, $webhookUrl, $repo, $today);
-            // Add a small delay to avoid rate limiting
-            sleep(2);
         }
     }
+
     /**
      * Send summary message
      */
@@ -326,79 +411,7 @@ class ReportingSchedule extends Command
             throw new \Exception("Discord webhook error: " . $response->status() . " - " . $response->body());
         }
     }
-    /**
-     * Send individual user commit message
-     */
-    private function sendUserCommitMessage(string $authorName, array $authorData, string $webhookUrl, string $repo, string $today): void
-    {
-        $authorCommits = $authorData['commits'];
-        $discordId = $authorData['discord_id'];
-        $aiSummary = $authorData['ai_summary'] ?? null;
-        $commitCount = count($authorCommits);
 
-        // Get unique branches
-        $branches = array_unique(array_map(function($commit) {
-            return $commit['branch'] ?? 'unknown';
-        }, $authorCommits));
-
-        $authorHeader = $discordId ? "<@{$discordId}>" : $authorName;
-        $embed = [
-            'title' => "👤 {$authorName}'s Commits",
-            'description' => "{$commitCount} commit" . ($commitCount > 1 ? 's' : '') . " on {$today}\n📌 Branches: " . implode(', ', $branches),
-            'color' => 0x00ff00,
-            'timestamp' => Carbon::now()->toISOString(),
-            'fields' => []
-        ];
-
-        // Add AI summary if available
-        if ($aiSummary) {
-            $embed['fields'][] = [
-                'name' => '🤖 AI Summary',
-                'value' => $aiSummary,
-                'inline' => false
-            ];
-        }
-
-        // Add commits list
-        $commitsList = '';
-        foreach (array_slice($authorCommits, 0, 10) as $commit) {
-            $message = $this->truncateMessage($commit['commit']['message'] ?? 'No message');
-            $sha = substr($commit['sha'], 0, 7);
-            $date = Carbon::parse($commit['commit']['author']['date'])->setTimezone('Asia/Singapore')->format('H:i');
-            $commitUrl = $commit['html_url'];
-            $branch = $commit['branch'] ?? 'unknown';
-            $commitsList .= "**[{$sha}]({$commitUrl})** `{$branch}` - {$date}\n";
-            $commitsList .= "└ {$message}\n\n";
-        }
-
-        if ($commitCount > 10) {
-            $commitsList .= "*... and " . ($commitCount - 10) . " more commits*\n";
-        }
-
-        $embed['fields'][] = [
-            'name' => '📝 Commits',
-            'value' => $commitsList,
-            'inline' => false
-        ];
-        // Add warning if user is not mapped
-        if (!$discordId) {
-            $embed['fields'][] = [
-                'name' => '⚠️ Note',
-                'value' => "This contributor doesn't have Discord mapping configured.",
-                'inline' => false
-            ];
-            $embed['color'] = 0xffa500;
-        }
-        $payload = [
-            'content' => $authorHeader . "'s commits:",
-            'embeds' => [$embed]
-        ];
-        $response = Http::post($webhookUrl, $payload);
-        if (!$response->successful()) {
-            // Log but don't throw to continue processing other users
-            Log::warning("Discord webhook error for user {$authorName}: " . $response->status());
-        }
-    }
     /**
      * Send no commits report
      */
