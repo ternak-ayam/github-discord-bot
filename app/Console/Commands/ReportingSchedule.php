@@ -231,6 +231,8 @@ class ReportingSchedule extends Command
 
         $response = Http::post($webhookUrl, $payload);
 
+        sleep(5);
+
         if (!$response->successful()) {
             Log::warning("Discord webhook error for user {$authorName}: " . $response->status());
         }
