@@ -54,7 +54,8 @@ return [
             'louis-perez' => '1432158071995760785',
             'andiferdiawan' => '1288319698043277355',
             'stewicca' => '1149616082018115665',
-            'ekayudinata' => '1434699656079740928'
+            'ekayudinata' => '1434699656079740928',
+            'Oggie Sutrisna' => '208518281215213568',
         ],
 
         'bot_token' => env('DISCORD_BOT_TOKEN'),

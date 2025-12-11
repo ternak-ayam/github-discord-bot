@@ -190,7 +190,7 @@ class ReportingSchedule extends Command
 
         // Add commits list
         $commitsList = '';
-        foreach (array_slice($authorCommits, 0, 10) as $commit) {
+        foreach (array_slice($authorCommits, 0, 3) as $commit) {
             $message = $this->truncateMessage($commit['commit']['message'] ?? 'No message');
             $sha = substr($commit['sha'], 0, 7);
             $date = Carbon::parse($commit['commit']['author']['date'])->setTimezone('Asia/Singapore')->format('H:i');
@@ -204,8 +204,8 @@ class ReportingSchedule extends Command
             $commitsList .= "└ {$message}\n\n";
         }
 
-        if ($commitCount > 10) {
-            $commitsList .= "*... and " . ($commitCount - 10) . " more commits*\n";
+        if ($commitCount > 3) {
+            $commitsList .= "*... and " . ($commitCount - 3) . " more commits*\n";
         }
 
         $embed['fields'][] = [
